@@ -123,6 +123,30 @@
     .axis { stroke: #cfc6b6; stroke-width: 1; }
     .series { fill: none; stroke: var(--accent); stroke-width: 1.6; }
     .area { fill: var(--accent-soft); stroke: none; }
+    .ma { fill: none; stroke-width: 1.4; stroke-linejoin: round; stroke-linecap: round; }
+    .ma-20 { stroke: #c47b2b; }
+    .ma-50 { stroke: #2f5f9e; }
+    .ma-100 { stroke: #8a3d6b; }
+    .ma-legend {
+      display: flex;
+      gap: 14px;
+      list-style: none;
+      margin: 0 0 8px;
+      padding: 0;
+      font-size: 0.75rem;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+    }
+    .ma-legend li { display: flex; align-items: center; gap: 6px; }
+    .swatch {
+      width: 16px;
+      height: 2px;
+      border-radius: 1px;
+      background: currentColor;
+    }
+    .swatch.ma-20 { background: #c47b2b; }
+    .swatch.ma-50 { background: #2f5f9e; }
+    .swatch.ma-100 { background: #8a3d6b; }
     .tick {
       font-size: 11px;
       fill: var(--muted);
@@ -154,7 +178,12 @@
     </ul>
     <section class="chart-card">
       <h2>Close over date</h2>
-      <svg id="chart" class="chart" viewBox="0 0 860 320" role="img" aria-label="Line chart of Close over Date"></svg>
+      <ul class="ma-legend" aria-label="Moving averages">
+        <li><span class="swatch ma-20"></span>20</li>
+        <li><span class="swatch ma-50"></span>50</li>
+        <li><span class="swatch ma-100"></span>100</li>
+      </ul>
+      <svg id="chart" class="chart" viewBox="0 0 860 320" role="img" aria-label="Line chart of Close over Date with 20, 50, and 100 day moving averages"></svg>
       <p class="hint">Tip: if you opened this file by double-clicking, use Choose CSV and pick <code>data/aapl.csv</code>. Served from this folder, the same file loads automatically.</p>
     </section>
   </main>
@@ -232,6 +261,27 @@
       drawChart(rows, min, max);
     }
 
+    function movingAverage(rows, window) {
+      const out = [];
+      let sum = 0;
+      for (let i = 0; i < rows.length; i++) {
+        sum += rows[i].close;
+        if (i >= window) sum -= rows[i - window].close;
+        out.push(i >= window - 1 ? sum / window : null);
+      }
+      return out;
+    }
+
+    function maPolyline(values, x, y, cls) {
+      const pts = [];
+      for (let i = 0; i < values.length; i++) {
+        if (values[i] == null) continue;
+        pts.push(x(i).toFixed(2) + "," + y(values[i]).toFixed(2));
+      }
+      if (!pts.length) return "";
+      return '<polyline class="ma ' + cls + '" points="' + pts.join(" ") + '"/>';
+    }
+
     function drawChart(rows, min, max) {
       const svg = document.getElementById("chart");
       const W = 860, H = 320;
@@ -265,7 +315,10 @@
         const i = labelIdx[k];
         labels += '<text class="tick" x="' + x(i).toFixed(1) + '" y="' + (H - 12) + '" text-anchor="middle">' + rows[i].date + "</text>";
       }
-      svg.innerHTML = grid + '<path class="area" d="' + area + '"/>' + '<path class="series" d="' + line.trim() + '"/>' + labels;
+      const ma20 = maPolyline(movingAverage(rows, 20), x, y, "ma-20");
+      const ma50 = maPolyline(movingAverage(rows, 50), x, y, "ma-50");
+      const ma100 = maPolyline(movingAverage(rows, 100), x, y, "ma-100");
+      svg.innerHTML = grid + '<path class="area" d="' + area + '"/>' + '<path class="series" d="' + line.trim() + '"/>' + ma20 + ma50 + ma100 + labels;
     }
 
     function setStatus(message, isError) {
