@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AAPL daily close</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f1ea;
+      --ink: #1c1915;
+      --muted: #5c564c;
+      --card: #fffdf8;
+      --line: #e4ddd0;
+      --accent: #1f6b4a;
+      --accent-soft: #e5f3ec;
+      --error: #8a2b1f;
+      --error-bg: #f8ece9;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.45;
+    }
+    main {
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 32px 20px 48px;
+    }
+    h1 {
+      font-family: Georgia, "Iowan Old Style", serif;
+      font-size: 1.85rem;
+      font-weight: 600;
+      margin: 0 0 6px;
+      letter-spacing: -0.02em;
+    }
+    .lede {
+      margin: 0 0 20px;
+      color: var(--muted);
+      max-width: 42rem;
+    }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px 18px;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    label.file {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 8px 12px;
+      font-size: 0.92rem;
+    }
+    input[type="file"] { font: inherit; max-width: 16rem; }
+    #status {
+      margin: 0;
+      font-size: 0.92rem;
+      color: var(--muted);
+    }
+    #status.error {
+      color: var(--error);
+      background: var(--error-bg);
+      border: 1px solid #ead0ca;
+      border-radius: 8px;
+      padding: 8px 10px;
+    }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 12px;
+      margin: 0 0 18px;
+      padding: 0;
+      list-style: none;
+    }
+    .stats li {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px 14px;
+    }
+    .stats .label {
+      display: block;
+      font-size: 0.75rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    .stats .value {
+      font-size: 1.15rem;
+      font-variant-numeric: tabular-nums;
+    }
+    .chart-card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 14px 14px 10px;
+    }
+    .chart-card h2 {
+      margin: 0 0 8px;
+      font-size: 1rem;
+      font-weight: 600;
+    }
+    svg.chart {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+    .axis { stroke: #cfc6b6; stroke-width: 1; }
+    .series { fill: none; stroke: var(--accent); stroke-width: 1.6; }
+    .area { fill: var(--accent-soft); stroke: none; }
+    .tick {
+      font-size: 11px;
+      fill: var(--muted);
+    }
+    .hint {
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin: 8px 0 0;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>AAPL daily close</h1>
+    <p class="lede">Upload a daily price CSV (AAPL OHLCV works: columns include Date and Close). Everything runs in your browser — no server, no API keys.</p>
+    <div class="toolbar">
+      <label class="file">
+        Choose CSV
+        <input id="file" type="file" accept=".csv,text/csv,text/plain">
+      </label>
+      <p id="status">Waiting for a CSV.</p>
+    </div>
+    <ul class="stats" aria-label="Summary statistics">
+      <li><span class="label">Data rows</span><span class="value" id="rows">—</span></li>
+      <li><span class="label">Date range</span><span class="value" id="range">—</span></li>
+      <li><span class="label">Mean close</span><span class="value" id="mean">—</span></li>
+      <li><span class="label">Min close</span><span class="value" id="min">—</span></li>
+      <li><span class="label">Max close</span><span class="value" id="max">—</span></li>
+    </ul>
+    <section class="chart-card">
+      <h2>Close over date</h2>
+      <svg id="chart" class="chart" viewBox="0 0 860 320" role="img" aria-label="Line chart of Close over Date"></svg>
+      <p class="hint">Tip: if you opened this file by double-clicking, use Choose CSV and pick <code>data/aapl.csv</code>. Served from this folder, the same file loads automatically.</p>
+    </section>
+  </main>
+  <script>
+    const fileInput = document.getElementById("file");
+    const statusEl = document.getElementById("status");
+
+    function headerName(raw) {
+      return String(raw || "").replace(/^\uFEFF/, "").trim().replace(/^["']|["']$/g, "");
+    }
+
+    function parseCsv(text) {
+      const lines = String(text || "").replace(/^\uFEFF/, "").split(/\r?\n/).filter((line, i, arr) => {
+        if (line.trim()) return true;
+        return i === 0 && arr.length > 1;
+      });
+      if (!lines.length || !headerName(lines[0])) {
+        throw new Error("This file looks empty. Choose a CSV whose first row is a header.");
+      }
+      const header = lines[0].split(",").map(headerName);
+      const dateIdx = header.indexOf("Date");
+      const closeIdx = header.indexOf("Close");
+      const missing = [];
+      if (dateIdx < 0) missing.push("Date");
+      if (closeIdx < 0) missing.push("Close");
+      if (missing.length) {
+        const have = header.filter(Boolean).join(", ") || "(none)";
+        if (missing.length === 2) {
+          throw new Error("This CSV is missing both Date and Close columns. The first row currently has: " + have + ".");
+        }
+        throw new Error("This CSV is missing a " + missing[0] + " column. Add " + missing[0] + " to the first row. Columns found: " + have + ".");
+      }
+      const dataLines = lines.slice(1).filter((line) => line.trim());
+      if (!dataLines.length) {
+        throw new Error("The CSV has Date and Close headers, but no data rows.");
+      }
+      const rows = [];
+      for (let i = 0; i < dataLines.length; i++) {
+        const cols = dataLines[i].split(",");
+        const date = headerName(cols[dateIdx]);
+        const close = Number(String(cols[closeIdx] || "").trim());
+        if (!date || !Number.isFinite(close)) continue;
+        rows.push({ date, close });
+      }
+      if (!rows.length) {
+        throw new Error("Found Date and Close columns, but no usable rows (Close must be a number).");
+      }
+      rows.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+      return rows;
+    }
+
+    function money(n) {
+      return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function clearStats() {
+      document.getElementById("rows").textContent = "—";
+      document.getElementById("range").textContent = "—";
+      document.getElementById("mean").textContent = "—";
+      document.getElementById("min").textContent = "—";
+      document.getElementById("max").textContent = "—";
+      document.getElementById("chart").innerHTML = "";
+    }
+
+    function render(rows) {
+      const closes = rows.map((r) => r.close);
+      const min = Math.min.apply(null, closes);
+      const max = Math.max.apply(null, closes);
+      const mean = closes.reduce(function (s, v) { return s + v; }, 0) / closes.length;
+      document.getElementById("rows").textContent = String(rows.length);
+      document.getElementById("range").textContent = rows[0].date + " to " + rows[rows.length - 1].date;
+      document.getElementById("mean").textContent = money(mean);
+      document.getElementById("min").textContent = money(min);
+      document.getElementById("max").textContent = money(max);
+      drawChart(rows, min, max);
+    }
+
+    function drawChart(rows, min, max) {
+      const svg = document.getElementById("chart");
+      const W = 860, H = 320;
+      const pad = { l: 58, r: 16, t: 16, b: 36 };
+      const iw = W - pad.l - pad.r;
+      const ih = H - pad.t - pad.b;
+      const span = max - min || 1;
+      const n = rows.length;
+      const x = function (i) { return pad.l + (n === 1 ? iw / 2 : (i / (n - 1)) * iw); };
+      const y = function (v) { return pad.t + (1 - (v - min) / span) * ih; };
+      let line = "";
+      let area = "M " + x(0) + " " + (pad.t + ih);
+      for (let i = 0; i < n; i++) {
+        const cmd = i === 0 ? "M" : "L";
+        line += cmd + " " + x(i).toFixed(2) + " " + y(rows[i].close).toFixed(2) + " ";
+        area += " L " + x(i).toFixed(2) + " " + y(rows[i].close).toFixed(2);
+      }
+      area += " L " + x(n - 1).toFixed(2) + " " + (pad.t + ih) + " Z";
+
+      const ticks = 4;
+      let grid = "";
+      for (let t = 0; t <= ticks; t++) {
+        const v = min + (span * t) / ticks;
+        const yy = y(v);
+        grid += '<line class="axis" x1="' + pad.l + '" y1="' + yy.toFixed(1) + '" x2="' + (W - pad.r) + '" y2="' + yy.toFixed(1) + '"/>';
+        grid += '<text class="tick" x="' + (pad.l - 8) + '" y="' + (yy + 4).toFixed(1) + '" text-anchor="end">' + v.toFixed(0) + "</text>";
+      }
+      const labelIdx = [0, Math.floor((n - 1) / 2), n - 1];
+      let labels = "";
+      for (let k = 0; k < labelIdx.length; k++) {
+        const i = labelIdx[k];
+        labels += '<text class="tick" x="' + x(i).toFixed(1) + '" y="' + (H - 12) + '" text-anchor="middle">' + rows[i].date + "</text>";
+      }
+      svg.innerHTML = grid + '<path class="area" d="' + area + '"/>' + '<path class="series" d="' + line.trim() + '"/>' + labels;
+    }
+
+    function setStatus(message, isError) {
+      statusEl.classList.toggle("error", !!isError);
+      statusEl.textContent = message;
+    }
+
+    function loadText(text, source) {
+      try {
+        const rows = parseCsv(text);
+        render(rows);
+        setStatus("Loaded " + rows.length + " data rows from " + source + ".", false);
+      } catch (err) {
+        clearStats();
+        setStatus(err.message || String(err), true);
+      }
+    }
+
+    fileInput.addEventListener("change", function () {
+      const file = fileInput.files && fileInput.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function () { loadText(String(reader.result), file.name); };
+      reader.onerror = function () { clearStats(); setStatus("Could not read that file. Try another CSV.", true); };
+      reader.readAsText(file);
+    });
+
+    fetch("./data/aapl.csv")
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.text();
+      })
+      .then(function (text) { loadText(text, "./data/aapl.csv"); })
+      .catch(function () {
+        setStatus("Could not auto-load ./data/aapl.csv (normal if you double-clicked this file). Use Choose CSV and pick data/aapl.csv.", false);
+      });
+  </script>
+</body>
+</html>
